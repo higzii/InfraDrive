@@ -1,0 +1,7 @@
+---
+- name: Restart Valkey container
+  community.docker.docker_container:
+    name: "{{ valkey_container_name }}"
+    state: started
+    restart: true
+  when: not (valkey_container_created.changed | default(false))

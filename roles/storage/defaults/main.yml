@@ -1,0 +1,30 @@
+---
+storage_nodes:
+  - name: "storage-1"
+    volume: "infradrive_storage_1_data"
+  - name: "storage-2"
+    volume: "infradrive_storage_2_data"
+  - name: "storage-3"
+    volume: "infradrive_storage_3_data"
+
+storage_network_name: "{{ infradrive_network_name | default('infradrive_net') }}"
+storage_mount_path: "/data"
+storage_restart_policy: "unless-stopped"
+
+storage_mode: "service"
+
+storage_image: ""
+storage_image_tag: "latest"
+storage_pull_image: false
+storage_command: []
+storage_env: {}
+
+storage_stub_image: "debian"
+storage_stub_image_tag: "trixie-slim"
+storage_stub_command:
+  - "sleep"
+  - "infinity"
+
+storage_limits_enabled: true
+storage_mem_limit: "256m"
+storage_cpus: 0.5

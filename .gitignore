@@ -1,0 +1,26 @@
+# Python & virtualenv
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ansible & Molecule runtime artifacts
+*.retry
+.ansible/
+.molecule/
+.cache/
+collections/
+
+# Secrets & local overrides (never commit)
+.env
+*.env
+*secret*
+*vault_pass*
+inventory/host_vars/
+
+# OS & editor files
+.DS_Store
+*.swp
+*.swo
+*~

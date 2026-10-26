@@ -1,0 +1,33 @@
+---
+valkey_container_name: "infradrive-valkey"
+valkey_image: "valkey/valkey"
+valkey_image_tag: "8.0-alpine"
+
+valkey_network_name: "{{ infradrive_network_name | default('infradrive_net') }}"
+valkey_volume_name: "infradrive_valkey_data"
+valkey_data_dir: "/data"
+
+valkey_config_host_dir: "/etc/infradrive/valkey"
+valkey_config_host_path: "{{ valkey_config_host_dir }}/valkey.conf"
+valkey_config_container_path: "/usr/local/etc/valkey/valkey.conf"
+valkey_container_gid: 1000
+
+valkey_port: 6379
+valkey_bind: "0.0.0.0"
+valkey_publish_ports: false
+valkey_bind_address: "127.0.0.1"
+valkey_host_port: 6379
+
+valkey_restart_policy: "unless-stopped"
+
+valkey_password: "{{ lookup('ansible.builtin.env', 'INFRADRIVE_VALKEY_PASSWORD') | default('', true) }}"
+
+valkey_appendonly: "yes"
+valkey_appendfsync: "everysec"
+valkey_maxmemory: "256mb"
+valkey_maxmemory_policy: "noeviction"
+
+valkey_healthcheck_interval: "10s"
+valkey_healthcheck_timeout: "5s"
+valkey_healthcheck_retries: 5
+valkey_healthcheck_start_period: "5s"

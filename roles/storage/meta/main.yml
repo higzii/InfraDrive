@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  role_name: storage
+  namespace: infradrive
+  author: infradrive
+  description: Provision three equal storage containers with dedicated persistent volumes for InfraDrive.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions:
+        - "13"
+  galaxy_tags:
+    - storage
+    - docker
+    - infradrive
+
+dependencies: []

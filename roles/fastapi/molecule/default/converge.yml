@@ -1,0 +1,20 @@
+---
+- name: Converge fastapi role with explicit infrastructure mock
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    fastapi_allow_mock: true
+    fastapi_image: "debian"
+    fastapi_image_tag: "trixie-slim"
+    fastapi_pull_image: false
+    fastapi_command:
+      - "sleep"
+      - "infinity"
+    fastapi_env:
+      INFRADRIVE_TEST_MODE: "molecule_infrastructure_mock"
+    fastapi_healthcheck_enabled: false
+
+  roles:
+    - role: fastapi

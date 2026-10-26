@@ -1,0 +1,133 @@
+---
+- name: Verify valkey_meta role
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    test_container_name: "infradrive-valkey"
+    test_volume_name: "infradrive_valkey_data"
+    test_network_name: "infradrive_net"
+    test_persistence_key: "infradrive:molecule:persistence_check"
+    test_persistence_value: "persisted_across_recreate_1"
+    test_auth_secret: "Molecule_Valkey_Test_Secret_2026"
+
+  tasks:
+    - name: Check host configuration file permissions
+      ansible.builtin.stat:
+        path: "/etc/infradrive/valkey/valkey.conf"
+      register: valkey_conf_stat
+
+    - name: Display valkey.conf stat details
+      ansible.builtin.debug:
+        msg: "valkey.conf stat mode: '{{ valkey_conf_stat.stat.mode }}', roth: {{ valkey_conf_stat.stat.roth | default(false) }}"
+
+    - name: Assert valkey.conf exists and is not world-readable
+      ansible.builtin.assert:
+        that:
+          - valkey_conf_stat.stat.exists | bool
+          - valkey_conf_stat.stat.mode in ["0640", "640", "0o640", "0600", "600"] or not (valkey_conf_stat.stat.roth | default(false) | bool)
+          - not (valkey_conf_stat.stat.woth | default(false) | bool)
+        fail_msg: "Файл valkey.conf не существует или доступен на чтение/запись другим пользователям хоста."
+
+    - name: Inspect Valkey container state
+      community.docker.docker_container_info:
+        name: "{{ test_container_name }}"
+      register: valkey_info
+
+    - name: Assert Valkey container exists, is running, and connected to infradrive_net
+      ansible.builtin.assert:
+        that:
+          - valkey_info.exists | bool
+          - valkey_info.container.State.Running | bool
+          - test_network_name in valkey_info.container.NetworkSettings.Networks
+          - valkey_info.container.HostConfig.RestartPolicy.Name == "unless-stopped"
+          - (valkey_info.container.HostConfig.PortBindings | default({}) | length) == 0
+
+    - name: Inspect Valkey volume
+      community.docker.docker_volume_info:
+        name: "{{ test_volume_name }}"
+      register: valkey_vol_info
+
+    - name: Assert Valkey persistent volume exists
+      ansible.builtin.assert:
+        that:
+          - valkey_vol_info.exists | bool
+
+    - name: Check Valkey availability via PING
+      community.docker.docker_container_exec:
+        container: "{{ test_container_name }}"
+        command: "valkey-cli ping"
+      register: valkey_ping
+      changed_when: false
+
+    - name: Assert Valkey responds with PONG
+      ansible.builtin.assert:
+        that:
+          - valkey_ping.rc == 0
+          - valkey_ping.stdout | trim == "PONG"
+
+    - name: Write test metadata key to Valkey
+      community.docker.docker_container_exec:
+        container: "{{ test_container_name }}"
+        command: "valkey-cli SET {{ test_persistence_key }} {{ test_persistence_value }}"
+      changed_when: false
+
+    - name: Force synchronous disk flush (SAVE) to persistent volume
+      community.docker.docker_container_exec:
+        container: "{{ test_container_name }}"
+        command: "valkey-cli SAVE"
+      changed_when: false
+
+    - name: Remove Valkey container while keeping persistent volume
+      community.docker.docker_container:
+        name: "{{ test_container_name }}"
+        state: absent
+        keep_volumes: true
+
+    - name: Re-apply valkey_meta role with password authentication enabled
+      ansible.builtin.include_role:
+        name: valkey_meta
+      vars:
+        valkey_password: "{{ test_auth_secret }}"
+
+    - name: Verify unauthenticated PING is rejected with NOAUTH when password is enabled
+      community.docker.docker_container_exec:
+        container: "{{ test_container_name }}"
+        env:
+          REDISCLI_AUTH: ""
+        command: "valkey-cli ping"
+      register: unauth_ping
+      changed_when: false
+
+    - name: Assert unauthenticated request receives NOAUTH
+      ansible.builtin.assert:
+        that:
+          - "'NOAUTH' in unauth_ping.stdout"
+        fail_msg: "Неаутентифицированный запрос не был отклонён при включённом requirepass."
+
+    - name: Read persisted test metadata key using authenticated session
+      community.docker.docker_container_exec:
+        container: "{{ test_container_name }}"
+        command: "valkey-cli GET {{ test_persistence_key }}"
+      register: valkey_get_after_recreate
+      changed_when: false
+
+    - name: Assert data persisted across container recreation and auth works
+      ansible.builtin.assert:
+        that:
+          - valkey_get_after_recreate.rc == 0
+          - valkey_get_after_recreate.stdout | trim == test_persistence_value
+        fail_msg: "Данные в volume {{ test_volume_name }} не сохранились после пересоздания контейнера."
+
+    - name: Clean up test metadata key
+      community.docker.docker_container_exec:
+        container: "{{ test_container_name }}"
+        command: "valkey-cli DEL {{ test_persistence_key }}"
+      changed_when: false
+
+    - name: Restore default valkey_meta state without password
+      ansible.builtin.include_role:
+        name: valkey_meta
+      vars:
+        valkey_password: ""

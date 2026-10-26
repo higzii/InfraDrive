@@ -1,0 +1,98 @@
+---
+- name: Verify storage role
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    expected_nodes:
+      - name: "storage-1"
+        volume: "infradrive_storage_1_data"
+      - name: "storage-2"
+        volume: "infradrive_storage_2_data"
+      - name: "storage-3"
+        volume: "infradrive_storage_3_data"
+    expected_network: "infradrive_net"
+    expected_mount: "/data"
+
+  tasks:
+    - name: Inspect each storage volume
+      community.docker.docker_volume_info:
+        name: "{{ item.volume }}"
+      loop: "{{ expected_nodes }}"
+      loop_control:
+        label: "{{ item.volume }}"
+      register: storage_volumes_info
+
+    - name: Assert all three dedicated storage volumes exist
+      ansible.builtin.assert:
+        that:
+          - item.exists | bool
+      loop: "{{ storage_volumes_info.results }}"
+      loop_control:
+        label: "{{ item.item.volume }}"
+
+    - name: Inspect each storage container
+      community.docker.docker_container_info:
+        name: "{{ item.name }}"
+      loop: "{{ expected_nodes }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: storage_containers_info
+
+    - name: Assert each storage container is running, attached to infradrive_net, mounts its own volume, and has stub label
+      ansible.builtin.assert:
+        that:
+          - item.exists | bool
+          - item.container.State.Running | bool
+          - expected_network in item.container.NetworkSettings.Networks
+          - (item.container.Mounts | selectattr('Destination', 'equalto', expected_mount) | map(attribute='Name') | list) == [item.item.volume]
+          - item.container.Config.Labels['infradrive.storage.mode'] == 'stub'
+          - item.container.HostConfig.Memory == 268435456
+      loop: "{{ storage_containers_info.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Write unique marker file to storage-1 /data to verify volume isolation
+      community.docker.docker_container_exec:
+        container: "storage-1"
+        command: "sh -c 'echo storage-1-only > /data/.isolation_check'"
+      changed_when: false
+
+    - name: Check that marker file from storage-1 is absent on storage-2 and storage-3
+      community.docker.docker_container_exec:
+        container: "{{ item }}"
+        command: "sh -c 'test ! -f /data/.isolation_check'"
+      loop:
+        - "storage-2"
+        - "storage-3"
+      changed_when: false
+
+    - name: Remove marker file from storage-1
+      community.docker.docker_container_exec:
+        container: "storage-1"
+        command: "rm -f /data/.isolation_check"
+      changed_when: false
+
+    - name: Test fail-fast guard when storage_mode is 'service' without storage_image
+      block:
+        - name: Attempt to run storage role in 'service' mode with empty storage_image
+          ansible.builtin.include_role:
+            name: storage
+          vars:
+            storage_mode: "service"
+            storage_image: ""
+
+        - name: Mark that storage role unexpectedly succeeded
+          ansible.builtin.set_fact:
+            storage_guard_blocked: false
+      rescue:
+        - name: Mark that storage role failed as expected
+          ansible.builtin.set_fact:
+            storage_guard_blocked: true
+
+    - name: Assert storage fail-fast guard blocked unconfigured 'service' mode
+      ansible.builtin.assert:
+        that:
+          - storage_guard_blocked | bool
+        fail_msg: "Роль storage в режиме 'service' должна завершаться ошибкой при пустом storage_image."

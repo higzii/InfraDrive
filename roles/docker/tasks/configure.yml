@@ -1,0 +1,37 @@
+---
+- name: Validate docker_daemon_config is a dictionary
+  ansible.builtin.assert:
+    that:
+      - docker_daemon_config is mapping
+    fail_msg: "docker_daemon_config должен быть корректным словарём параметров Docker daemon."
+
+- name: Create Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "python3 -m json.tool %s"
+  notify: Restart Docker
+
+- name: Flush handlers to apply Docker daemon changes if needed
+  ansible.builtin.meta: flush_handlers
+
+- name: Gather service facts to verify Docker daemon readiness
+  ansible.builtin.service_facts:
+
+- name: Assert Docker service is running after configuration
+  ansible.builtin.assert:
+    that:
+      - "'docker.service' in ansible_facts.services"
+      - ansible_facts.services['docker.service'].state == 'running'
+    fail_msg: "Служба docker.service не запущена после применения /etc/docker/daemon.json."

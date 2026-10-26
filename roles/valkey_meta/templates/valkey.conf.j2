@@ -1,0 +1,16 @@
+bind {{ valkey_bind }}
+port {{ valkey_port }}
+protected-mode yes
+dir {{ valkey_data_dir }}
+
+appendonly {{ valkey_appendonly }}
+appendfsync {{ valkey_appendfsync }}
+save 900 1
+save 300 10
+save 60 10000
+
+maxmemory {{ valkey_maxmemory }}
+maxmemory-policy {{ valkey_maxmemory_policy }}
+{% if valkey_password | length > 0 %}
+requirepass "{{ valkey_password | replace('\\', '\\\\') | replace('"', '\\"') }}"
+{% endif %}

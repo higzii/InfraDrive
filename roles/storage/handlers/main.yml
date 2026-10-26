@@ -1,0 +1,9 @@
+---
+- name: Restart storage containers
+  community.docker.docker_container:
+    name: "{{ item.name }}"
+    state: started
+    restart: true
+  loop: "{{ storage_nodes }}"
+  loop_control:
+    label: "{{ item.name }}"

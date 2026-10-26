@@ -1,0 +1,143 @@
+---
+- name: Validate storage_mode parameter
+  ansible.builtin.assert:
+    that:
+      - storage_mode in ["service", "stub"]
+    fail_msg: >-
+      Недопустимое значение storage_mode='{{ storage_mode }}'.
+      Допустимые значения: 'service' (реальный сервис хранения) или 'stub' (инфраструктурная заглушка).
+
+- name: Validate storage_nodes configuration
+  ansible.builtin.assert:
+    that:
+      - storage_nodes is iterable
+      - storage_nodes | length >= 3
+      - (storage_nodes | map(attribute='name') | unique | length) == (storage_nodes | length)
+      - (storage_nodes | map(attribute='volume') | unique | length) == (storage_nodes | length)
+    fail_msg: >-
+      Список storage_nodes должен содержать не менее трёх равноправных нод
+      с уникальными именами контейнеров и уникальными именами persistent volumes.
+
+- name: Validate resource limits configuration when enabled
+  ansible.builtin.assert:
+    that:
+      - (storage_mem_limit | string | trim | length) > 0
+      - (storage_cpus | float) > 0
+    fail_msg: >-
+      Некорректные лимиты ресурсов: storage_mem_limit='{{ storage_mem_limit }}', storage_cpus='{{ storage_cpus }}'.
+  when: storage_limits_enabled | bool
+
+- name: Assert real storage service image is provided in 'service' mode
+  ansible.builtin.assert:
+    that:
+      - storage_image is defined
+      - (storage_image | trim | length) > 0
+      - (storage_image | trim) not in ["debian", "alpine", "busybox", "ubuntu"]
+      - "'sleep' not in (storage_command | join(' '))"
+    fail_msg: >-
+      Роль storage запущена в полноценном режиме (storage_mode='service'), но рабочий образ storage-демона не задан
+      (storage_image='{{ storage_image | default('') }}').
+      В репозитории отсутствует код storage-сервиса. Укажите реальный Docker-образ через '-e storage_image=<image>'
+      (или INFRADRIVE_STORAGE_IMAGE), либо явно включите режим инфраструктурных заглушек
+      '-e storage_mode=stub' (или INFRADRIVE_STORAGE_MODE=stub) для тестирования Docker-томов и сети.
+  when: storage_mode == "service"
+
+- name: Inspect shared Docker network for storage nodes
+  community.docker.docker_network_info:
+    name: "{{ storage_network_name }}"
+  register: storage_network_check
+
+- name: Assert shared Docker network exists
+  ansible.builtin.assert:
+    that:
+      - storage_network_check.exists | bool
+    fail_msg: >-
+      Docker-сеть '{{ storage_network_name }}' не существует.
+      Она должна создаваться владельцем сети в playbooks/site.yml или prepare.yml.
+
+- name: Check if storage service image exists locally when pull is disabled in 'service' mode
+  community.docker.docker_image_info:
+    name: "{{ storage_image }}:{{ storage_image_tag }}"
+  register: storage_image_check
+  when:
+    - storage_mode == "service"
+    - not (storage_pull_image | bool)
+
+- name: Assert storage service image is available locally when pull is disabled
+  ansible.builtin.assert:
+    that:
+      - (storage_image_check.images | length) > 0
+    fail_msg: >-
+      Локальный Docker-образ storage-сервиса '{{ storage_image }}:{{ storage_image_tag }}' не найден на целевом хосте.
+      Загрузите или соберите образ на хосте, либо укажите '-e storage_pull_image=true'.
+  when:
+    - storage_mode == "service"
+    - not (storage_pull_image | bool)
+
+- name: Create dedicated persistent Docker volume for each storage node
+  community.docker.docker_volume:
+    name: "{{ item.volume }}"
+    state: present
+  loop: "{{ storage_nodes }}"
+  loop_control:
+    label: "{{ item.name }} -> {{ item.volume }}"
+
+- name: Ensure equal storage node containers are running
+  community.docker.docker_container:
+    name: "{{ item.name }}"
+    hostname: "{{ item.name }}"
+    image: >-
+      {{
+        (storage_stub_image ~ ':' ~ storage_stub_image_tag)
+        if (storage_mode == 'stub')
+        else (storage_image ~ ':' ~ storage_image_tag)
+      }}
+    pull: "{{ (storage_pull_image | bool) if (storage_mode == 'service') else false }}"
+    command: >-
+      {{
+        storage_stub_command
+        if (storage_mode == 'stub')
+        else (storage_command if (storage_command | length > 0) else omit)
+      }}
+    env: "{{ storage_env if (storage_mode == 'service' and (storage_env | length > 0)) else omit }}"
+    labels:
+      infradrive.component: "storage"
+      infradrive.storage.mode: "{{ storage_mode }}"
+      infradrive.storage.node: "{{ item.name }}"
+    state: started
+    restart_policy: "{{ storage_restart_policy }}"
+    volumes:
+      - "{{ item.volume }}:{{ storage_mount_path }}:rw"
+    networks:
+      - name: "{{ storage_network_name }}"
+    networks_cli_compatible: true
+    memory: "{{ storage_mem_limit if (storage_limits_enabled | bool) else omit }}"
+    cpus: "{{ storage_cpus if (storage_limits_enabled | bool) else omit }}"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "test -d {{ storage_mount_path }} && test -w {{ storage_mount_path }}"
+      interval: "15s"
+      timeout: "5s"
+      retries: 3
+      start_period: "3s"
+    comparisons:
+      volumes: strict
+      networks: strict
+      command: strict
+      labels: strict
+      env: strict
+  no_log: "{{ (storage_env | default({}) | length) > 0 }}"
+  loop: "{{ storage_nodes }}"
+  loop_control:
+    label: "{{ item.name }} (mode={{ storage_mode }})"
+
+- name: Verify each storage node container is running and /data is writable
+  community.docker.docker_container_exec:
+    container: "{{ item.name }}"
+    command: "sh -c 'test -d {{ storage_mount_path }} && test -w {{ storage_mount_path }}'"
+  loop: "{{ storage_nodes }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: storage_mount_checks
+  changed_when: false

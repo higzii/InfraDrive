@@ -1,0 +1,6 @@
+---
+- name: Restart FastAPI container
+  community.docker.docker_container:
+    name: "{{ fastapi_container_name }}"
+    state: started
+    restart: true

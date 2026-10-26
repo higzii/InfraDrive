@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  role_name: fastapi
+  namespace: infradrive
+  author: infradrive
+  description: Deploy FastAPI backend container for InfraDrive.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions:
+        - "13"
+  galaxy_tags:
+    - fastapi
+    - backend
+    - docker
+
+dependencies: []

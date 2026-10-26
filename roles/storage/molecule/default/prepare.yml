@@ -1,0 +1,23 @@
+---
+- name: Prepare isolated Debian 13 platform for storage
+  hosts: all
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: docker
+
+  tasks:
+    - name: Install python3-docker for community.docker modules
+      ansible.builtin.apt:
+        name:
+          - python3-docker
+          - python3-requests
+        state: present
+        update_cache: true
+
+    - name: Create shared InfraDrive Docker network
+      community.docker.docker_network:
+        name: "infradrive_net"
+        driver: "bridge"
+        state: present

@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  role_name: valkey_meta
+  namespace: infradrive
+  author: infradrive
+  description: Deploy and configure Valkey container for InfraDrive metadata storage.
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions:
+        - "13"
+  galaxy_tags:
+    - valkey
+    - docker
+    - metadata
+
+dependencies: []

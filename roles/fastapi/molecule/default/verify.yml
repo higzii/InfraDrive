@@ -1,0 +1,70 @@
+---
+- name: Verify fastapi role (Infrastructure mechanism & fail-fast guards)
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    expected_container: "infradrive-backend"
+    expected_network: "infradrive_net"
+
+  tasks:
+    - name: Inspect mock FastAPI container
+      community.docker.docker_container_info:
+        name: "{{ expected_container }}"
+      register: fastapi_info
+
+    - name: Assert mock container is running, attached to infradrive_net, and does not expose ports by default
+      ansible.builtin.assert:
+        that:
+          - fastapi_info.exists | bool
+          - fastapi_info.container.State.Running | bool
+          - expected_network in fastapi_info.container.NetworkSettings.Networks
+          - "'INFRADRIVE_TEST_MODE=molecule_infrastructure_mock' in fastapi_info.container.Config.Env"
+          - (fastapi_info.container.HostConfig.PortBindings | default({}) | length) == 0
+
+    - name: Test fail-fast guard on empty fastapi_image
+      block:
+        - name: Attempt to run fastapi role with empty fastapi_image
+          ansible.builtin.include_role:
+            name: fastapi
+          vars:
+            fastapi_image: ""
+
+        - name: Mark that role unexpectedly succeeded on empty image
+          ansible.builtin.set_fact:
+            guard_blocked_empty_image: false
+      rescue:
+        - name: Mark that role failed as expected on empty image
+          ansible.builtin.set_fact:
+            guard_blocked_empty_image: true
+
+    - name: Assert that fail-fast guard blocked empty fastapi_image
+      ansible.builtin.assert:
+        that:
+          - guard_blocked_empty_image | bool
+        fail_msg: "Роль fastapi должна была завершиться ошибкой при пустом fastapi_image."
+
+    - name: Test fail-fast guard blocking stub image when fastapi_allow_mock is false
+      block:
+        - name: Attempt to run fastapi role with debian stub when fastapi_allow_mock=false
+          ansible.builtin.include_role:
+            name: fastapi
+          vars:
+            fastapi_allow_mock: false
+            fastapi_image: "debian"
+            fastapi_image_tag: "trixie-slim"
+
+        - name: Mark that role unexpectedly allowed stub image
+          ansible.builtin.set_fact:
+            guard_blocked_stub_image: false
+      rescue:
+        - name: Mark that role blocked stub image as expected
+          ansible.builtin.set_fact:
+            guard_blocked_stub_image: true
+
+    - name: Assert that fail-fast guard blocked stub image in production mode
+      ansible.builtin.assert:
+        that:
+          - guard_blocked_stub_image | bool
+        fail_msg: "Роль fastapi должна блокировать запуск заглушки debian при fastapi_allow_mock=false."

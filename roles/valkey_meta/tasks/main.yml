@@ -1,0 +1,110 @@
+---
+- name: Inspect shared Docker network for Valkey
+  community.docker.docker_network_info:
+    name: "{{ valkey_network_name }}"
+  register: valkey_network_check
+
+- name: Assert shared Docker network exists
+  ansible.builtin.assert:
+    that:
+      - valkey_network_check.exists | bool
+    fail_msg: >-
+      Docker-сеть '{{ valkey_network_name }}' не существует.
+      Она должна создаваться владельцем сети в playbooks/site.yml или prepare.yml.
+
+- name: Check if valkey.conf destination path is an accidental directory
+  ansible.builtin.stat:
+    path: "{{ valkey_config_host_path }}"
+  register: valkey_conf_path_check
+
+- name: Remove accidental directory created at valkey.conf path
+  ansible.builtin.file:
+    path: "{{ valkey_config_host_path }}"
+    state: absent
+  when:
+    - valkey_conf_path_check.stat.exists | bool
+    - valkey_conf_path_check.stat.isdir | bool
+
+- name: Ensure Valkey configuration directory exists on host with restricted permissions
+  ansible.builtin.file:
+    path: "{{ valkey_config_host_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Render Valkey configuration file
+  ansible.builtin.template:
+    src: valkey.conf.j2
+    dest: "{{ valkey_config_host_path }}"
+    owner: root
+    group: "{{ valkey_container_gid }}"
+    mode: "0640"
+  no_log: "{{ (valkey_password | length) > 0 }}"
+  notify: Restart Valkey container
+
+- name: Ensure persistent Docker volume for Valkey exists
+  community.docker.docker_volume:
+    name: "{{ valkey_volume_name }}"
+    state: present
+
+- name: Ensure Valkey container is running
+  community.docker.docker_container:
+    name: "{{ valkey_container_name }}"
+    hostname: "{{ valkey_container_name }}"
+    image: "{{ valkey_image }}:{{ valkey_image_tag }}"
+    state: started
+    restart_policy: "{{ valkey_restart_policy }}"
+    command:
+      - "valkey-server"
+      - "{{ valkey_config_container_path }}"
+    volumes:
+      - "{{ valkey_volume_name }}:{{ valkey_data_dir }}:rw"
+      - "{{ valkey_config_host_path }}:{{ valkey_config_container_path }}:ro"
+    networks:
+      - name: "{{ valkey_network_name }}"
+    networks_cli_compatible: true
+    published_ports: >-
+      {{
+        [valkey_bind_address ~ ':' ~ (valkey_host_port | string) ~ ':' ~ (valkey_port | string)]
+        if (valkey_publish_ports | bool)
+        else []
+      }}
+    env: >-
+      {{
+        {'REDISCLI_AUTH': valkey_password}
+        if (valkey_password | length > 0)
+        else {}
+      }}
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "valkey-cli -p {{ valkey_port }} ping | grep -q PONG"
+      interval: "{{ valkey_healthcheck_interval }}"
+      timeout: "{{ valkey_healthcheck_timeout }}"
+      retries: "{{ valkey_healthcheck_retries }}"
+      start_period: "{{ valkey_healthcheck_start_period }}"
+    comparisons:
+      env: strict
+      volumes: strict
+      networks: strict
+      command: strict
+      published_ports: strict
+      healthcheck: strict
+  no_log: "{{ (valkey_password | length) > 0 }}"
+  register: valkey_container_created
+
+- name: Flush handlers to apply any pending Valkey restart
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait until Valkey container is responding to PING
+  community.docker.docker_container_exec:
+    container: "{{ valkey_container_name }}"
+    command: "valkey-cli -p {{ valkey_port }} ping"
+  register: valkey_ping_check
+  until:
+    - valkey_ping_check.rc == 0
+    - valkey_ping_check.stdout | trim == "PONG"
+  retries: 15
+  delay: 2
+  changed_when: false

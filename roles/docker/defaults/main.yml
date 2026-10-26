@@ -1,0 +1,22 @@
+---
+docker_package_state: present
+
+docker_service_name: docker
+docker_service_enabled: true
+docker_service_state: started
+
+docker_apt_repository: "https://download.docker.com/linux/debian"
+docker_apt_suite: 'trixie'
+
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+docker_daemon_config:
+  log-driver: json-file
+  log-opts:
+    max-size: "10m"
+    max-file: "3"

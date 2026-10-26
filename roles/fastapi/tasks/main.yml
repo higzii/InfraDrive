@@ -1,0 +1,114 @@
+---
+- name: Assert FastAPI Docker image name is explicitly configured
+  ansible.builtin.assert:
+    that:
+      - fastapi_image is defined
+      - (fastapi_image | trim | length) > 0
+    fail_msg: >-
+      Образ FastAPI backend не задан (переменная 'fastapi_image' пуста).
+      Backend разрабатывается отдельно: соберите или загрузите Docker-образ на целевой хост
+      и передайте его имя через '-e fastapi_image=<image>' или переменную окружения
+      INFRADRIVE_FASTAPI_IMAGE. Для развёртывания только инфраструктурного слоя (Docker, Valkey, Storage)
+      запустите playbook с флагом '--skip-tags fastapi'.
+
+- name: Prevent using stub images or sleep commands in production mode
+  ansible.builtin.assert:
+    that:
+      - (fastapi_image | trim) not in ["debian", "alpine", "busybox", "ubuntu"]
+      - "'sleep' not in (fastapi_command | join(' '))"
+    fail_msg: >-
+      Использование базовых ОС-заглушек ('{{ fastapi_image }}') или команды 'sleep' запрещено
+      для роли fastapi в основном режиме (fastapi_allow_mock=false).
+  when: not (fastapi_allow_mock | bool)
+
+- name: Inspect shared Docker network for FastAPI
+  community.docker.docker_network_info:
+    name: "{{ fastapi_network_name }}"
+  register: fastapi_network_check
+
+- name: Assert shared Docker network exists
+  ansible.builtin.assert:
+    that:
+      - fastapi_network_check.exists | bool
+    fail_msg: >-
+      Docker-сеть '{{ fastapi_network_name }}' не существует.
+      Она должна создаваться владельцем сети в playbooks/site.yml или prepare.yml.
+
+- name: Check if FastAPI image exists locally on target Docker daemon
+  community.docker.docker_image_info:
+    name: "{{ fastapi_image }}:{{ fastapi_image_tag }}"
+  register: fastapi_image_check
+  when: not (fastapi_pull_image | bool)
+
+- name: Assert FastAPI image is available locally when pull is disabled
+  ansible.builtin.assert:
+    that:
+      - (fastapi_image_check.images | length) > 0
+    fail_msg: >-
+      Локальный Docker-образ '{{ fastapi_image }}:{{ fastapi_image_tag }}' не найден на целевом хосте.
+      Инструкция: соберите образ на целевом хосте ('docker build -t {{ fastapi_image }}:{{ fastapi_image_tag }} .'),
+      загрузите его через 'docker load', либо включите загрузку из реестра '-e fastapi_pull_image=true'.
+  when: not (fastapi_pull_image | bool)
+
+- name: Validate healthcheck configuration if enabled
+  ansible.builtin.assert:
+    that:
+      - fastapi_healthcheck_test is iterable
+      - (fastapi_healthcheck_test | length) > 0
+    fail_msg: >-
+      Параметр fastapi_healthcheck_enabled=true требует явного задания команды проверки в fastapi_healthcheck_test
+      на основе реально существующего endpoint backend.
+  when: fastapi_healthcheck_enabled | bool
+
+- name: Ensure FastAPI backend container is running
+  community.docker.docker_container:
+    name: "{{ fastapi_container_name }}"
+    hostname: "{{ fastapi_container_name }}"
+    image: "{{ fastapi_image }}:{{ fastapi_image_tag }}"
+    pull: "{{ fastapi_pull_image | bool }}"
+    command: "{{ fastapi_command if (fastapi_command | length > 0) else omit }}"
+    state: started
+    restart_policy: "{{ fastapi_restart_policy }}"
+    networks:
+      - name: "{{ fastapi_network_name }}"
+    networks_cli_compatible: true
+    exposed_ports:
+      - "{{ fastapi_internal_port }}"
+    published_ports: >-
+      {{
+        [fastapi_bind_address ~ ':' ~ (fastapi_host_port | string) ~ ':' ~ (fastapi_internal_port | string)]
+        if (fastapi_publish_port | bool)
+        else []
+      }}
+    env: "{{ fastapi_env }}"
+    healthcheck: >-
+      {{
+        {
+          'test': fastapi_healthcheck_test,
+          'interval': fastapi_healthcheck_interval,
+          'timeout': fastapi_healthcheck_timeout,
+          'retries': fastapi_healthcheck_retries,
+          'start_period': fastapi_healthcheck_start_period
+        }
+        if (fastapi_healthcheck_enabled | bool)
+        else omit
+      }}
+    comparisons:
+      env: strict
+      networks: strict
+      command: strict
+      published_ports: strict
+      healthcheck: strict
+  no_log: "{{ (fastapi_env | length) > 0 }}"
+
+- name: Inspect FastAPI container runtime status
+  community.docker.docker_container_info:
+    name: "{{ fastapi_container_name }}"
+  register: fastapi_runtime_info
+
+- name: Assert FastAPI container is running
+  ansible.builtin.assert:
+    that:
+      - fastapi_runtime_info.exists | bool
+      - fastapi_runtime_info.container.State.Running | bool
+    fail_msg: "Контейнер '{{ fastapi_container_name }}' не находится в состоянии Running после запуска."

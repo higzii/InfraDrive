@@ -1,0 +1,11 @@
+---
+- name: Converge storage role in explicit infrastructure stub mode
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    storage_mode: "stub"
+
+  roles:
+    - role: storage

@@ -1,0 +1,34 @@
+---
+infradrive_network_name: "infradrive_net"
+infradrive_network_driver: "bridge"
+
+valkey_container_name: "infradrive-valkey"
+valkey_image: "valkey/valkey"
+valkey_image_tag: "8.0-alpine"
+valkey_volume_name: "infradrive_valkey_data"
+valkey_port: 6379
+valkey_publish_ports: false
+valkey_password: "{{ lookup('ansible.builtin.env', 'INFRADRIVE_VALKEY_PASSWORD') | default('', true) }}"
+
+storage_mode: "{{ lookup('ansible.builtin.env', 'INFRADRIVE_STORAGE_MODE') | default('service', true) }}"
+storage_image: "{{ lookup('ansible.builtin.env', 'INFRADRIVE_STORAGE_IMAGE') | default('', true) }}"
+storage_image_tag: "{{ lookup('ansible.builtin.env', 'INFRADRIVE_STORAGE_TAG') | default('latest', true) }}"
+
+storage_nodes:
+  - name: "storage-1"
+    volume: "infradrive_storage_1_data"
+  - name: "storage-2"
+    volume: "infradrive_storage_2_data"
+  - name: "storage-3"
+    volume: "infradrive_storage_3_data"
+
+storage_mount_path: "/data"
+
+fastapi_container_name: "infradrive-backend"
+fastapi_image: "{{ lookup('ansible.builtin.env', 'INFRADRIVE_FASTAPI_IMAGE') | default('', true) }}"
+fastapi_image_tag: "{{ lookup('ansible.builtin.env', 'INFRADRIVE_FASTAPI_TAG') | default('latest', true) }}"
+fastapi_internal_port: 8000
+fastapi_publish_port: false
+fastapi_bind_address: "127.0.0.1"
+fastapi_host_port: 8000
+fastapi_healthcheck_enabled: false

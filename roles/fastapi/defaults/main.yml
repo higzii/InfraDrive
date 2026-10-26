@@ -1,0 +1,26 @@
+---
+fastapi_image: ""
+fastapi_image_tag: "latest"
+fastapi_pull_image: false
+
+fastapi_allow_mock: false
+
+fastapi_container_name: "infradrive-backend"
+fastapi_network_name: "{{ infradrive_network_name | default('infradrive_net') }}"
+fastapi_restart_policy: "unless-stopped"
+
+fastapi_internal_port: 8000
+fastapi_publish_port: false
+fastapi_bind_address: "127.0.0.1"
+fastapi_host_port: 8000
+
+fastapi_command: []
+
+fastapi_env: {}
+
+fastapi_healthcheck_enabled: false
+fastapi_healthcheck_test: []
+fastapi_healthcheck_interval: "30s"
+fastapi_healthcheck_timeout: "5s"
+fastapi_healthcheck_retries: 3
+fastapi_healthcheck_start_period: "10s"

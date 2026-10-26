@@ -1,0 +1,101 @@
+---
+- name: Deploy InfraDrive infrastructure on Debian 13
+  hosts: infradrive
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify target host runs Debian 13 on supported architecture
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == "Debian"
+          - ansible_facts['distribution_major_version'] == "13"
+          - ansible_facts['architecture'] in ["x86_64", "aarch64", "amd64", "arm64"]
+        fail_msg: >-
+          Целевой хост должен работать под управлением Debian 13 (trixie) на архитектуре x86_64/aarch64.
+          Текущая ОС: {{ ansible_facts['distribution'] | default('unknown') }}
+          {{ ansible_facts['distribution_major_version'] | default('unknown') }}
+          ({{ ansible_facts['architecture'] | default('unknown') }}).
+      tags:
+        - always
+
+  roles:
+    - role: docker
+      tags:
+        - docker
+
+  tasks:
+    - name: Flush handlers to ensure Docker daemon is running with updated configuration
+      ansible.builtin.meta: flush_handlers
+      tags:
+        - always
+
+    - name: Ensure Docker daemon service is active before managing containers
+      ansible.builtin.service:
+        name: "docker"
+        state: started
+        enabled: true
+      tags:
+        - always
+
+    - name: Install Python Docker SDK dependencies on target host
+      ansible.builtin.apt:
+        name:
+          - python3-docker
+          - python3-requests
+        state: present
+        cache_valid_time: 3600
+      tags:
+        - always
+
+    - name: Create shared InfraDrive Docker network
+      community.docker.docker_network:
+        name: "{{ infradrive_network_name }}"
+        driver: "{{ infradrive_network_driver | default('bridge') }}"
+        state: present
+      tags:
+        - always
+
+    - name: Inspect shared InfraDrive Docker network parameters
+      community.docker.docker_network_info:
+        name: "{{ infradrive_network_name }}"
+      register: infradrive_net_info
+      tags:
+        - always
+
+    - name: Assert shared InfraDrive Docker network exists with expected driver
+      ansible.builtin.assert:
+        that:
+          - infradrive_net_info.exists | bool
+          - infradrive_net_info.network.Driver == (infradrive_network_driver | default('bridge'))
+        fail_msg: >-
+          Сеть '{{ infradrive_network_name }}' отсутствует или имеет некорректный драйвер.
+      tags:
+        - always
+
+    - name: Apply valkey_meta role
+      ansible.builtin.include_role:
+        name: valkey_meta
+        apply:
+          tags:
+            - valkey
+      tags:
+        - valkey
+
+    - name: Apply storage role
+      ansible.builtin.include_role:
+        name: storage
+        apply:
+          tags:
+            - storage
+      tags:
+        - storage
+
+    - name: Apply fastapi role
+      ansible.builtin.include_role:
+        name: fastapi
+        apply:
+          tags:
+            - fastapi
+      tags:
+        - fastapi

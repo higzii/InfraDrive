@@ -1,0 +1,63 @@
+---
+- name: Assert supported operating system and architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == "Debian"
+      - ansible_facts['distribution_major_version'] == "13"
+      - ansible_facts['architecture'] in ["x86_64", "aarch64", "amd64", "arm64"]
+    fail_msg: "This role supports Debian 13 (trixie) on x86_64/aarch64 only."
+
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    state: present
+    cache_valid_time: 3600
+
+- name: Create Docker keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Docker GPG key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/debian/gpg
+    dest: "{{ docker_apt_keyring }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure Docker APT repository
+  ansible.builtin.copy:
+    dest: "{{ docker_apt_sources_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: {{ docker_apt_repository }}
+      Suites: {{ docker_apt_suite }}
+      Components: stable
+      Architectures: {{ ansible_facts['architecture'] | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}
+      Signed-By: {{ docker_apt_keyring }}
+  register: docker_apt_repo_file
+
+- name: Update APT cache for Docker repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: docker_apt_repo_file.changed
+
+- name: Install Docker packages
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: "{{ docker_package_state }}"
+
+- name: Ensure Docker service is enabled and started
+  ansible.builtin.service:
+    name: "{{ docker_service_name }}"
+    enabled: "{{ docker_service_enabled }}"
+    state: "{{ docker_service_state }}"

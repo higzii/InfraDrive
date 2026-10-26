@@ -1,0 +1,45 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Verify Debian version
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == "Debian"
+          - ansible_facts['distribution_major_version'] == "13"
+
+    - name: Check Docker service
+      ansible.builtin.service_facts:
+
+    - name: Assert Docker is running
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['docker.service'].state == 'running'
+
+    - name: Check Docker CLI
+      ansible.builtin.command:
+        cmd: docker version
+      register: docker_version
+      changed_when: false
+
+    - name: Check Docker Compose
+      ansible.builtin.command:
+        cmd: docker compose version
+      register: docker_compose
+      changed_when: false
+
+    - name: Test Docker daemon
+      ansible.builtin.command:
+        cmd: docker info
+      register: docker_info
+      changed_when: false
+
+    - name: Assert Docker works
+      ansible.builtin.assert:
+        that:
+          - docker_version.rc == 0
+          - docker_compose.rc == 0
+          - docker_info.rc == 0
