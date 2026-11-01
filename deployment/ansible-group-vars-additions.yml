@@ -1,0 +1,28 @@
+# Merge into inventory/group_vars/all.yml in the existing InfraDrive repository.
+# `storage_env` and `fastapi_env` are currently empty in the Ansible defaults.
+# Replace the existing `fastapi_healthcheck_enabled: false` value with `true`.
+
+storage_env:
+  STORAGE_DATA_DIR: "{{ storage_mount_path | default('/data') }}"
+  STORAGE_PORT: "8001"
+  STORAGE_MAX_CHUNK_BYTES: "4194304"
+
+fastapi_env:
+  INFRADRIVE_VALKEY_HOST: "{{ valkey_container_name | default('infradrive-valkey') }}"
+  INFRADRIVE_VALKEY_PORT: "{{ valkey_port | default(6379) | string }}"
+  INFRADRIVE_VALKEY_PASSWORD: "{{ valkey_password | default('') }}"
+  INFRADRIVE_STORAGE_NODES: "storage-1=http://storage-1:8001,storage-2=http://storage-2:8001,storage-3=http://storage-3:8001"
+  INFRADRIVE_CHUNK_SIZE_BYTES: "4194304"
+  INFRADRIVE_MAX_FILE_BYTES: "10737418240"
+  INFRADRIVE_REPLICATION_FACTOR: "2"
+  INFRADRIVE_STORAGE_TIMEOUT_SECONDS: "10"
+  INFRADRIVE_STORAGE_CONNECT_TIMEOUT_SECONDS: "3"
+  INFRADRIVE_API_TOKEN: "{{ lookup('ansible.builtin.env', 'INFRADRIVE_API_TOKEN') | default('', true) }}"
+
+# In the existing group_vars file, change fastapi_healthcheck_enabled: false to true.
+# Add this healthcheck test command (do not duplicate the existing enabled key).
+fastapi_healthcheck_test:
+  - CMD
+  - python
+  - -c
+  - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
