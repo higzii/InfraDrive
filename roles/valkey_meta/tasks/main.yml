@@ -1,4 +1,3 @@
----
 - name: Inspect shared Docker network for Valkey
   community.docker.docker_network_info:
     name: "{{ valkey_network_name }}"
@@ -25,24 +24,21 @@
     - valkey_conf_path_check.stat.exists | bool
     - valkey_conf_path_check.stat.isdir | bool
 
-- name: Ensure Valkey configuration directory exists on host with restricted permissions
+- name: Ensure Valkey configuration directory exists on host
   ansible.builtin.file:
     path: "{{ valkey_config_host_dir }}"
     state: directory
-    owner: root
-    group: root
     mode: "0700"
+    owner: "{{ omit }}"
+    group: "{{ omit }}"
 
 - name: Render Valkey configuration file
   ansible.builtin.template:
     src: valkey.conf.j2
     dest: "{{ valkey_config_host_path }}"
-    owner: root
-    group: "{{ valkey_container_gid }}"
-    mode: "0640"
+    mode: "0644"
   no_log: "{{ (valkey_password | length) > 0 }}"
   notify: Restart Valkey container
-
 - name: Ensure persistent Docker volume for Valkey exists
   community.docker.docker_volume:
     name: "{{ valkey_volume_name }}"

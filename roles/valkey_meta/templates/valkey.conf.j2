@@ -1,6 +1,6 @@
 bind {{ valkey_bind }}
 port {{ valkey_port }}
-protected-mode yes
+protected-mode {{ 'yes' if (valkey_password | length > 0) else 'no' }}
 dir {{ valkey_data_dir }}
 
 appendonly {{ valkey_appendonly }}
